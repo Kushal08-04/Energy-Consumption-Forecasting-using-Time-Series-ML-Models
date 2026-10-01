@@ -1,0 +1,79 @@
+[
+  {
+    "version": "v1.0",
+    "timestamp": "2026-10-01 09:26:56",
+    "region": "North-Metro",
+    "trigger_type": "Test Run",
+    "best_model": "Online Incremental (SGD)",
+    "best_mape": 2.27,
+    "best_rmse": 113.95,
+    "records_trained": 1081,
+    "drift_status": "Drift Detected (Retrain Required)"
+  },
+  {
+    "version": "v2.0-online",
+    "timestamp": "2026-10-01 09:26:56",
+    "region": "North-Metro",
+    "trigger_type": "Online Streaming Update",
+    "best_model": "Online Incremental / Ensemble",
+    "best_mape": 2.27,
+    "best_rmse": 113.95,
+    "records_trained": 1081,
+    "drift_status": "Drift Detected (Retrain Required)"
+  },
+  {
+    "version": "v3.0",
+    "timestamp": "2026-10-01 09:28:45",
+    "region": "North-Metro",
+    "trigger_type": "Test Run",
+    "best_model": "Online Incremental (SGD)",
+    "best_mape": 2.27,
+    "best_rmse": 113.84,
+    "records_trained": 1081,
+    "drift_status": "Drift Detected (Retrain Required)"
+  },
+  {
+    "version": "v4.0-online",
+    "timestamp": "2026-10-01 09:28:45",
+    "region": "North-Metro",
+    "trigger_type": "Online Streaming Update",
+    "best_model": "Online Incremental / Ensemble",
+    "best_mape": 2.27,
+    "best_rmse": 113.84,
+    "records_trained": 1081,
+    "drift_status": "Drift Detected (Retrain Required)"
+  },
+  {
+    "version": "v5.0",
+    "timestamp": "2026-10-01 09:29:40",
+    "region": "North-Metro",
+    "trigger_type": "Initial Train",
+    "best_model": "XGBoost",
+    "best_mape": 2.8,
+    "best_rmse": 121.35,
+    "records_trained": 28441,
+    "drift_status": "Warning: Minor Shift"
+  },
+  {
+    "version": "v6.0",
+    "timestamp": "2026-10-01 09:32:09",
+    "region": "North-Metro",
+    "trigger_type": "Manual Benchmark",
+    "best_model": "XGBoost",
+    "best_mape": 2.8,
+    "best_rmse": 121.35,
+    "records_trained": 28441,
+    "drift_status": "Warning: Minor Shift"
+  },
+  {
+    "version": "v7.0",
+    "timestamp": "2026-10-01 09:32:26",
+    "region": "North-Metro",
+    "trigger_type": "Manual Benchmark",
+    "best_model": "XGBoost",
+    "best_mape": 2.5,
+    "best_rmse": 121.0,
+    "records_trained": 28441,
+    "drift_status": "Warning: Minor Shift"
+  }
+]
