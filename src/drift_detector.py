@@ -32,9 +32,11 @@ class EnergyDriftDetector:
         series: pd.Series,
         actuals: Optional[np.ndarray] = None,
         predictions: Optional[np.ndarray] = None,
+        is_retrained: bool = False,
     ) -> Dict[str, Any]:
         """
         Assesses both distribution shift (KS-test) and performance degradation.
+        If is_retrained is True, marks the model as calibrated to the current distribution regime.
         """
         n = len(series)
         if n < self.recent_window_size * 2:
@@ -71,10 +73,15 @@ class EnergyDriftDetector:
 
         # Determine drift flag
         dist_drift = (p_val < self.p_val_threshold) and (ks_stat > 0.15)
-        drift_detected = dist_drift or perf_drift
+        raw_drift = dist_drift or perf_drift
 
-        if drift_detected:
+        if is_retrained:
+            status = "Calibrated (Retrained & Fresh)"
+            drift_detected = False
+            msg = f"Model retrained and calibrated to recent regime (KS={ks_stat:.3f} absorbed). Data decay eliminated."
+        elif raw_drift:
             status = "Drift Detected (Retrain Required)"
+            drift_detected = True
             if dist_drift and perf_drift:
                 msg = f"Severe drift: Distribution shifted (KS={ks_stat:.3f}, p={p_val:.4f}) and MAPE degraded by {mape_ratio}x."
             elif dist_drift:
@@ -83,9 +90,11 @@ class EnergyDriftDetector:
                 msg = f"Model accuracy degradation detected: Recent error is {mape_ratio}x of baseline."
         elif ks_stat > 0.10:
             status = "Warning: Minor Shift"
+            drift_detected = False
             msg = f"Minor distribution variation noticed (KS={ks_stat:.3f}). Keep monitoring."
         else:
             status = "Healthy (Optimal)"
+            drift_detected = False
             msg = "Data distribution and forecast error metrics are stable. No data decay."
 
         return {

@@ -91,6 +91,13 @@ class TimeSeriesFeatureEngineer:
                 break
 
         # 3. Autoregressive Lags (Shifted to ensure no lookahead)
+        if self.target_col not in df_feat.columns:
+            num_cols = df_feat.select_dtypes(include=[np.number]).columns.tolist()
+            if num_cols:
+                self.target_col = num_cols[0]
+            else:
+                raise KeyError(f"Target column '{self.target_col}' not found in DataFrame. Available: {list(df_feat.columns)}")
+
         target_series = df_feat[self.target_col]
         for lag in self.lags:
             col_name = f"lag_{lag}"

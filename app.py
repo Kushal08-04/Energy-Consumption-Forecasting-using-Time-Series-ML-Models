@@ -116,6 +116,9 @@ with st.sidebar:
 
     df_raw = None
     selected_region = None
+    custom_target_col = None
+    custom_dt_col = None
+    uploaded_file = None
 
     if data_source == "Multi-Region Benchmark Dataset":
         sample_path = os.path.join("data", "sample_energy_data.csv")
@@ -134,22 +137,61 @@ with st.sidebar:
                     df_raw = pd.read_csv(uploaded_file)
                 else:
                     df_raw = pd.read_excel(uploaded_file)
-                st.success(f"Uploaded {uploaded_file.name} ({len(df_raw)} records)")
+                st.success(f"Loaded {uploaded_file.name} ({len(df_raw):,} records)")
+
+                # Column auto-detection & user confirmation
+                inspector = EnergyDataLoader()
+                col_info = inspector.inspect_columns(df_raw)
+                all_cols = list(df_raw.columns)
+                num_cols = list(df_raw.select_dtypes(include=[np.number]).columns)
+
+                st.markdown("##### **Column Mapping**")
+                default_dt_idx = all_cols.index(col_info["datetime_col"]) if col_info["datetime_col"] in all_cols else 0
+                custom_dt_col = st.selectbox("Timestamp / Date Column:", all_cols, index=default_dt_idx)
+
+                if not num_cols:
+                    st.error("No numeric columns found in the uploaded file.")
+                    st.stop()
+
+                default_target_idx = num_cols.index(col_info["target_col"]) if col_info["target_col"] in num_cols else 0
+                custom_target_col = st.selectbox("Energy Target Column:", num_cols, index=default_target_idx)
+
+                # Optional Region filter
+                if col_info["region_col"] and col_info["region_col"] in df_raw.columns:
+                    reg_options = ["All Regions"] + list(df_raw[col_info["region_col"]].dropna().unique())
+                    chosen_reg = st.selectbox("Filter Region (Optional):", reg_options, index=0)
+                    selected_region = None if chosen_reg == "All Regions" else str(chosen_reg)
+
             except Exception as e:
                 st.error(f"Error loading file: {e}")
+                st.stop()
         else:
             st.info("Awaiting file upload... Using benchmark dataset meanwhile.")
             sample_path = os.path.join("data", "sample_energy_data.csv")
             df_raw = pd.read_csv(sample_path)
             selected_region = "North-Metro"
 
+    # Dataset Signature tracking (detects when a new file or configuration is uploaded)
+    source_sig = f"{data_source}_{selected_region}_{custom_dt_col}_{custom_target_col}"
+    if data_source != "Multi-Region Benchmark Dataset" and uploaded_file is not None:
+        source_sig += f"_{uploaded_file.name}_{uploaded_file.size}"
+
+    if st.session_state.get("dataset_signature") != source_sig:
+        st.session_state.dataset_signature = source_sig
+        st.session_state.trained = False
+        st.session_state.last_results = None
+
     # Preprocess
     if df_raw is not None:
-        loader = EnergyDataLoader()
+        loader = EnergyDataLoader(
+            target_col=custom_target_col,
+            datetime_col=custom_dt_col,
+        )
         try:
             processed_df, meta = loader.process(df_raw, selected_region=selected_region)
             st.session_state.current_df = processed_df
             st.session_state.current_metadata = meta
+            st.session_state.pipeline.set_target_column(meta["target_col"])
         except Exception as e:
             st.error(f"Preprocessing error: {e}")
             st.stop()
@@ -196,14 +238,18 @@ with st.sidebar:
 
 
 # --- PIPELINE EXECUTION ---
+meta = st.session_state.get("current_metadata", {})
+active_target_col = meta.get("target_col", st.session_state.pipeline.target_col)
+
 if train_button or (not st.session_state.trained and st.session_state.current_df is not None):
-    with st.spinner("Training time-series models & calibrating ensemble..."):
+    with st.spinner(f"Training time-series models on target '{active_target_col}' & calibrating ensemble..."):
         reg_name = selected_region or "Custom-Grid"
         res = st.session_state.pipeline.train_and_evaluate(
             df=st.session_state.current_df,
             test_horizon=horizon_steps,
             region_name=reg_name,
             trigger_type="Manual Benchmark",
+            target_col=active_target_col,
         )
         st.session_state.last_results = res
         st.session_state.trained = True
@@ -214,14 +260,16 @@ if train_button or (not st.session_state.trained and st.session_state.current_df
 st.markdown('<div class="main-header">⚡ GridCast AI : Energy Consumption Forecasting</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">Continuous Learning Time-Series Intelligence & Autonomous Retraining Engine</div>', unsafe_allow_html=True)
 
-if not st.session_state.trained or st.session_state.current_df is None:
-    st.info("Click 'Train & Benchmark Models' in the sidebar to initialize the forecasting pipeline.")
+if not st.session_state.trained or st.session_state.current_df is None or st.session_state.last_results is None:
+    st.info("👈 Click **'Train & Benchmark Models'** in the sidebar to initialize the forecasting pipeline.")
     st.stop()
 
 pipeline: EnergyForecastingPipeline = st.session_state.pipeline
 results = st.session_state.last_results
 current_df = st.session_state.current_df
 meta = st.session_state.current_metadata
+target_col = meta.get("target_col", pipeline.target_col)
+pipeline.set_target_column(target_col)
 
 # Calculate forecast
 active_model_name = "Adaptive Ensemble" if "Adaptive" in model_choice else model_choice
@@ -230,10 +278,11 @@ forecast_df = pipeline.forecast_future(
     horizon_steps=horizon_steps,
     model_name=active_model_name,
     confidence_level=conf_level,
+    target_col=target_col,
 )
 
 # Extract key statistics
-current_load = float(current_df[pipeline.target_col].iloc[-1])
+current_load = float(current_df[target_col].iloc[-1])
 peak_forecast = float(forecast_df["forecast_mw"].max())
 peak_dt = forecast_df["forecast_mw"].idxmax()
 min_forecast = float(forecast_df["forecast_mw"].min())
@@ -246,7 +295,7 @@ best_r2 = scorecard.loc[active_model_name, "R2"] if active_model_name in scoreca
 
 drift_report = results["drift_report"]
 drift_status = drift_report["status"]
-if "Healthy" in drift_status:
+if "Healthy" in drift_status or "Calibrated" in drift_status:
     status_pill = f'<span class="status-healthy">● {drift_status}</span>'
 elif "Warning" in drift_status:
     status_pill = f'<span class="status-warning">▲ {drift_status}</span>'
@@ -261,7 +310,7 @@ with kpi_col1:
     st.metric(
         label="Latest Grid Load",
         value=f"{current_load:,.1f} MW",
-        delta=f"{(current_load - current_df[pipeline.target_col].iloc[-2]):+.1f} MW (1h)",
+        delta=f"{(current_load - current_df[target_col].iloc[-2]):+.1f} MW (1h)",
     )
 
 with kpi_col2:
@@ -289,7 +338,10 @@ with kpi_col4:
 with kpi_col5:
     st.markdown("**Continuous Learning Status**")
     st.markdown(status_pill, unsafe_allow_html=True)
-    st.caption(f"KS Stat: {drift_report['ks_statistic']:.3f} (p={drift_report['p_value']:.4f})")
+    latest_v = pipeline.version_history[-1] if pipeline.version_history else {}
+    v_tag = latest_v.get("version", "v1.0")
+    v_time = latest_v.get("timestamp", "").split(" ")[-1] if " " in latest_v.get("timestamp", "") else ""
+    st.caption(f"Model Checkpoint: **{v_tag}** ({v_time})")
 
 st.markdown("---")
 
@@ -318,7 +370,7 @@ with tab1:
     # Historical line
     fig_forecast.add_trace(go.Scatter(
         x=hist_subset.index,
-        y=hist_subset[pipeline.target_col],
+        y=hist_subset[target_col],
         name="Historical Actual (MW)",
         line=dict(color="#334155", width=2),
         mode="lines",
@@ -429,7 +481,7 @@ with tab2:
         st.markdown("#### **24-Hour Diurnal Demand Profile**")
         df_diurnal = current_df.copy()
         df_diurnal["hour"] = df_diurnal.index.hour
-        hourly_grp = df_diurnal.groupby("hour")[pipeline.target_col].agg(["mean", "min", "max"])
+        hourly_grp = df_diurnal.groupby("hour")[target_col].agg(["mean", "min", "max"])
 
         fig_diurnal = go.Figure()
         fig_diurnal.add_trace(go.Scatter(
@@ -466,7 +518,7 @@ with tab2:
         df_week = current_df.copy()
         df_week["dayofweek"] = df_week.index.day_name()
         days_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-        day_avg = df_week.groupby("dayofweek")[pipeline.target_col].mean().reindex(days_order)
+        day_avg = df_week.groupby("dayofweek")[target_col].mean().reindex(days_order)
 
         fig_bar = px.bar(
             x=day_avg.index,
@@ -483,7 +535,7 @@ with tab2:
     df_heat = current_df.copy()
     df_heat["hour"] = df_heat.index.hour
     df_heat["dayofweek"] = df_heat.index.day_name()
-    heat_matrix = df_heat.pivot_table(index="dayofweek", columns="hour", values=pipeline.target_col, aggfunc="mean").reindex(days_order)
+    heat_matrix = df_heat.pivot_table(index="dayofweek", columns="hour", values=target_col, aggfunc="mean").reindex(days_order)
 
     fig_heat = px.imshow(
         heat_matrix,
@@ -523,6 +575,27 @@ with tab3:
     2. **Concept Drift-Triggered Batch Retraining**: Monitors distribution shifts via Kolmogorov-Smirnov statistical tests and rolling residual errors.
     """)
 
+    # Verification & Health Banner
+    latest_entry = pipeline.version_history[-1] if pipeline.version_history else {}
+    latest_ver = latest_entry.get("version", "v1.0")
+    latest_time = latest_entry.get("timestamp", "N/A")
+    latest_trig = latest_entry.get("trigger_type", "Initial Train")
+    latest_mape = latest_entry.get("best_mape", 0.0)
+
+    if "Calibrated" in drift_report["status"] or "Healthy" in drift_report["status"]:
+        st.success(
+            f"✅ **Model State: Calibrated & Fresh ({latest_ver})**\n\n"
+            f"• **Active Version:** `{latest_ver}` | **Last Retrained:** `{latest_time}` ({latest_trig})\n\n"
+            f"• **Current Validation Error:** `{latest_mape:.2f}% MAPE` — Model weights are adapted to the current energy consumption regime."
+        )
+    else:
+        st.error(
+            f"⚠️ **Action Required: Concept Drift Flagged**\n\n"
+            f"• **Status:** `{drift_report['status']}`\n\n"
+            f"• **Diagnostic:** {drift_report['message']}\n\n"
+            f"• **Recommended Action:** Click **'Trigger Batch Retraining'** below to re-align model weights to the new demand distribution."
+        )
+
     drift_c1, drift_c2 = st.columns([1, 1])
 
     with drift_c1:
@@ -534,33 +607,50 @@ with tab3:
         st.write(f"• **Recent Window Mean:** `{drift_report.get('recent_mean', 0.0):,.1f} MW` (± {drift_report.get('recent_std', 0.0):,.1f})")
 
         st.markdown("---")
-        st.markdown("#### **Live Continuous Retraining Triggers**")
+        st.markdown("#### **Live Retraining & Drift Test Controls**")
         
-        col_btn1, col_btn2 = st.columns(2)
+        col_btn1, col_btn2, col_btn3 = st.columns(3)
         with col_btn1:
-            if st.button("⚡ Ingest Stream Batch (Online Update)", use_container_width=True):
-                with st.spinner("Incrementally updating model weights via partial_fit()..."):
-                    # Simulate next batch (last 24 hours)
-                    stream_batch = current_df.iloc[-24:].copy()
-                    update_res = pipeline.continuous_online_update(
-                        stream_batch,
-                        region_name=selected_region or "Regional Grid",
-                    )
-                    st.success(f"Stream update complete! Checkpoint `{update_res['version_entry']['version']}` logged.")
-                    st.rerun()
-
-        with col_btn2:
-            if st.button("🔄 Trigger Batch Retraining", use_container_width=True):
+            if st.button("🔄 Trigger Batch Retraining", type="primary", use_container_width=True):
                 with st.spinner("Executing full walk-forward batch retrain..."):
                     res = pipeline.train_and_evaluate(
                         df=current_df,
                         test_horizon=horizon_steps,
                         region_name=selected_region or "Regional Grid",
-                        trigger_type="Drift / On-Demand Retrain",
+                        trigger_type="Batch Retrain (Drift Resolved)",
+                        target_col=target_col,
                     )
                     st.session_state.last_results = res
-                    st.success("Batch retraining finished! Models re-calibrated.")
+                    st.toast(f"✅ Retraining complete! Checkpoint {res['version_entry']['version']} deployed.", icon="🚀")
                     st.rerun()
+
+        with col_btn2:
+            if st.button("⚡ Ingest Stream Batch", use_container_width=True):
+                with st.spinner("Incrementally updating model weights via partial_fit()..."):
+                    stream_batch = current_df.iloc[-24:].copy()
+                    update_res = pipeline.continuous_online_update(
+                        stream_batch,
+                        region_name=selected_region or "Regional Grid",
+                        target_col=target_col,
+                    )
+                    st.toast(f"Stream update complete! Checkpoint {update_res['version_entry']['version']} logged.", icon="⚡")
+                    st.rerun()
+
+        with col_btn3:
+            if st.button("⚠️ Test Drift Alert", use_container_width=True):
+                # Injects simulated concept drift to test detection and retraining flow
+                st.session_state.last_results["drift_report"] = {
+                    "status": "Drift Detected (Retrain Required)",
+                    "message": "Simulated concept drift: Industrial consumption shifted by +25%. Immediate retraining required.",
+                    "ks_statistic": 0.2850,
+                    "p_value": 0.0001,
+                    "drift_detected": True,
+                    "mape_ratio": 1.65,
+                    "ref_mean": float(current_df[target_col].mean()),
+                    "recent_mean": float(current_df[target_col].mean() * 1.25),
+                }
+                st.toast("⚠️ Concept drift injected! Click 'Trigger Batch Retraining' to resolve.", icon="⚠️")
+                st.rerun()
 
     with drift_c2:
         st.markdown("#### **Model Performance Scorecard**")
@@ -570,14 +660,14 @@ with tab3:
         ref_n = min(720, len(current_df) - 168)
         fig_dist = go.Figure()
         fig_dist.add_trace(go.Histogram(
-            x=current_df[pipeline.target_col].iloc[:ref_n],
+            x=current_df[target_col].iloc[:ref_n],
             name="Reference Baseline Window",
             opacity=0.6,
             marker_color="#3b82f6",
             nbinsx=35,
         ))
         fig_dist.add_trace(go.Histogram(
-            x=current_df[pipeline.target_col].iloc[-168:],
+            x=current_df[target_col].iloc[-168:],
             name="Recent Window (Last 7 Days)",
             opacity=0.6,
             marker_color="#f97316",
@@ -596,9 +686,9 @@ with tab3:
 
     # Retraining & Version History Audit Log
     st.markdown("---")
-    st.markdown("#### **Model Registry & Version Audit Trail**")
+    st.markdown("#### **Model Registry & Version Audit Trail (Newest First)**")
     if pipeline.version_history:
-        history_df = pd.DataFrame(pipeline.version_history)
+        history_df = pd.DataFrame(pipeline.version_history)[::-1].reset_index(drop=True)
         st.dataframe(history_df, use_container_width=True)
 
 

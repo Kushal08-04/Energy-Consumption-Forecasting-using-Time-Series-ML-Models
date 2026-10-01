@@ -125,6 +125,10 @@ class EnergyForecastPDFReport:
         fig, ax = plt.subplots(figsize=(8.2, 3.4), dpi=200)
 
         # Plot recent history
+        if target_col not in historical_df.columns:
+            num_cols = historical_df.select_dtypes(include=[np.number]).columns
+            target_col = num_cols[0] if len(num_cols) > 0 else historical_df.columns[0]
+
         hist_subset = historical_df.iloc[-recent_hours:]
         ax.plot(
             hist_subset.index,

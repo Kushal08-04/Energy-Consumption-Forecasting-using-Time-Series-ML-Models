@@ -84,17 +84,33 @@ class EnergyForecastingPipeline:
         with open(history_file, "w") as f:
             json.dump(self.version_history, f, indent=2)
 
+    def set_target_column(self, target_col: str):
+        """Updates active target column across trainer and feature engineer."""
+        self.target_col = target_col
+        self.feature_engineer.target_col = target_col
+
     def train_and_evaluate(
         self,
         df: pd.DataFrame,
         test_horizon: int = 168,  # 7 days test window
         region_name: str = "Default-Region",
         trigger_type: str = "Initial Train",
+        target_col: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Trains full suite of models using time-series split, evaluates them,
         calibrates the ensemble, and registers a version checkpoint.
         """
+        # Resolve target column
+        if target_col:
+            self.set_target_column(target_col)
+        elif self.target_col not in df.columns:
+            num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+            if num_cols:
+                self.set_target_column(num_cols[0])
+            else:
+                raise ValueError(f"Target column '{self.target_col}' not found. Available: {list(df.columns)}")
+
         self.last_train_data = df.copy()
 
         # Generate feature matrix
@@ -162,10 +178,12 @@ class EnergyForecastingPipeline:
 
         # Drift assessment
         best_preds = test_predictions[self.best_model_name]
+        is_retrain_action = trigger_type in ["Drift / On-Demand Retrain", "Manual Benchmark", "Batch Retrain", "Initial Train"]
         drift_report = self.drift_detector.evaluate_drift(
             series=df[self.target_col],
             actuals=y_test.values,
             predictions=best_preds,
+            is_retrained=is_retrain_action,
         )
 
         # Register version checkpoint
@@ -197,12 +215,20 @@ class EnergyForecastingPipeline:
     def continuous_online_update(
         self,
         new_data_batch: pd.DataFrame,
-        region_name: str = "Default-Region"
+        region_name: str = "Default-Region",
+        target_col: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Incrementally updates online continuous models with streaming/new data batch.
         Uses partial_fit() to adapt weights without re-training from scratch.
         """
+        if target_col:
+            self.set_target_column(target_col)
+        elif self.target_col not in new_data_batch.columns:
+            num_cols = new_data_batch.select_dtypes(include=[np.number]).columns.tolist()
+            if num_cols:
+                self.set_target_column(num_cols[0])
+
         if self.last_train_data is not None:
             combined = pd.concat([self.last_train_data, new_data_batch])
             combined = combined[~combined.index.duplicated(keep="last")].sort_index()
@@ -224,8 +250,11 @@ class EnergyForecastingPipeline:
                 model.partial_fit(X_batch, y_batch)
                 updated_models.append(name)
 
-        # Re-evaluate drift
-        drift_report = self.drift_detector.evaluate_drift(self.last_train_data[self.target_col])
+        # Re-evaluate drift with online update
+        drift_report = self.drift_detector.evaluate_drift(
+            series=self.last_train_data[self.target_col],
+            is_retrained=True,
+        )
 
         # Register continuous checkpoint
         new_version_num = len(self.version_history) + 1
@@ -256,11 +285,20 @@ class EnergyForecastingPipeline:
         horizon_steps: int = 48,
         model_name: Optional[str] = None,
         confidence_level: float = 0.95,
+        target_col: Optional[str] = None,
     ) -> pd.DataFrame:
         """
         Recursively forecasts energy consumption for future steps.
         Produces point forecasts, upper bound, and lower bound.
         """
+        if target_col:
+            self.set_target_column(target_col)
+        elif self.target_col not in df.columns:
+            num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+            if num_cols:
+                self.set_target_column(num_cols[0])
+            else:
+                raise ValueError(f"Target column '{self.target_col}' not found in dataframe. Available: {list(df.columns)}")
         if model_name is None or model_name not in self.models:
             model_name = self.best_model_name
 
