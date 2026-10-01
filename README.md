@@ -171,6 +171,15 @@ pip install scipy openpyxl
 
 ## ▶️ Usage
 
+<img width="1912" height="892" alt="image" src="https://github.com/user-attachments/assets/05f6a5d5-60d7-4480-878b-9482790df0d9" />
+<img width="1887" height="882" alt="image" src="https://github.com/user-attachments/assets/7ec0ec7e-999e-486d-ad35-e0d7e1557f1c" />
+<img width="1901" height="910" alt="image" src="https://github.com/user-attachments/assets/2da604fd-9af9-41c1-89f0-1c40f04ad646" />
+<img width="1895" height="911" alt="image" src="https://github.com/user-attachments/assets/6bd802d7-bc31-4de3-a400-7b9e7c9cf9e4" />
+
+
+
+
+
 ### Launch the dashboard
 
 ```bash
