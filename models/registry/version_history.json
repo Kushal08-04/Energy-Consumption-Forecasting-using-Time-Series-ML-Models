@@ -449,5 +449,49 @@
     "best_rmse": 121.35,
     "records_trained": 28441,
     "drift_status": "Warning: Minor Shift"
+  },
+  {
+    "version": "v42.0",
+    "timestamp": "2026-10-01 14:17:24",
+    "region": "North-Metro",
+    "trigger_type": "Manual Benchmark",
+    "best_model": "XGBoost",
+    "best_mape": 2.8,
+    "best_rmse": 121.35,
+    "records_trained": 28441,
+    "drift_status": "Warning: Minor Shift"
+  },
+  {
+    "version": "v43.0",
+    "timestamp": "2026-10-01 14:25:55",
+    "region": "North-Metro",
+    "trigger_type": "Manual Benchmark",
+    "best_model": "XGBoost",
+    "best_mape": 2.8,
+    "best_rmse": 121.35,
+    "records_trained": 28441,
+    "drift_status": "Warning: Minor Shift"
+  },
+  {
+    "version": "v44.0",
+    "timestamp": "2026-10-01 14:27:30",
+    "region": "Custom-Grid",
+    "trigger_type": "Manual Benchmark",
+    "best_model": "Adaptive Ensemble",
+    "best_mape": 0.68,
+    "best_rmse": 350.06,
+    "records_trained": 145392,
+    "drift_status": "Drift Detected (Retrain Required)"
+  },
+  {
+    "version": "v45.0",
+    "timestamp": "2026-10-01 15:16:20",
+    "region": "North-Metro",
+    "trigger_type": "Manual Benchmark",
+    "best_model": "XGBoost",
+    "best_mape": 2.8,
+    "best_rmse": 121.35,
+    "records_trained": 28441,
+    "drift_status": "Warning: Minor Shift"
   }
 ]
